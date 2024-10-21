@@ -74,9 +74,9 @@ const sendTranscriptionResponse = (
       if (result.alternatives && result.alternatives[0]) {
         const transcript = result.alternatives[0].transcript;
         const message = {
-          type: "transcriber-response",
-          transcription: transcript,
-          channel: "customer",
+          "type": "transcriber-response",
+          "transcription": transcript,
+          "channel": "customer",
         };
         ws.send(JSON.stringify(message));
       }
@@ -87,8 +87,8 @@ const sendTranscriptionResponse = (
 const sendErrorResponse = (ws: WebSocket, errorMessage: string) => {
   if (ws.readyState === WebSocket.OPEN) {
     const message = {
-      type: "error",
-      error: errorMessage,
+      "type": "error",
+      "error": errorMessage,
     };
     ws.send(JSON.stringify(message));
     console.error("Sent error response:", message);
