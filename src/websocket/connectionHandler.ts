@@ -18,19 +18,25 @@ export const handleConnection = (ws: WebSocket) => {
 
   ws.on("message", async (message: WebSocket.Data, isBinary: boolean) => {
     if (isBinary) {
-      audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
+      const message = {
+        "type": "transcriber-response",
+        "transcription": "Hæ Róbert, gaman að heyra frá þér",
+        "channel": "customer",
+      };
+      ws.send(JSON.stringify(message));
+      // audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
 
-      if (!isProcessing && audioBuffer.length > 0) {
-        isProcessing = true;
-        await processAndSendTranscription(
-          ws,
-          audioBuffer,
-          sampleRate,
-          channels
-        );
-        audioBuffer = Buffer.alloc(0);
-        isProcessing = false;
-      }
+      // if (!isProcessing && audioBuffer.length > 0) {
+      //   isProcessing = true;
+      //   await processAndSendTranscription(
+      //     ws,
+      //     audioBuffer,
+      //     sampleRate,
+      //     channels
+      //   );
+      //   audioBuffer = Buffer.alloc(0);
+      //   isProcessing = false;
+      // }
     } else {
       try {
         const jsonMessage = JSON.parse(message.toString()) as StartMessage;
