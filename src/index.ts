@@ -16,12 +16,12 @@ const wss = new WebSocket.Server({ server, path: "/transcribe", });
 
 wss.on("connection", (ws, req) => {
   // Verify VAPI secret
-  const vapiSecret = req.headers['x-vapi-secret'];
-  if (vapiSecret !== config.vapiSecret) {
-    logger.warn("Invalid VAPI secret");
-    ws.close(1008, "Invalid VAPI secret");
-    return;
-  }
+  // const vapiSecret = req.headers['x-vapi-secret'];
+  // if (vapiSecret !== config.vapiSecret) {
+  //   logger.warn("Invalid VAPI secret");
+  //   ws.close(1008, "Invalid VAPI secret");
+  //   return;
+  // }
   logger.log("WebSocket client connected");
   handleConnection(ws);
 });
