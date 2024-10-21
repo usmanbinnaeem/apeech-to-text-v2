@@ -1,35 +1,43 @@
 import WebSocket from "ws";
-import { v4 as uuidv4 } from "uuid";
-import { handleMessage } from "./messageHandler";
+import { processAudioData } from "./audioProcessor";
 
-export const handleConnection = (ws: WebSocket, req: any) => {
-  const sessionId = uuidv4();
+export const handleConnection = (ws: WebSocket) => {
+  let pcmBuffer = Buffer.alloc(0);
+  let sampleRate: number;
 
-  ws.send(
-    JSON.stringify({
-      event: "connection",
-      sessionId: sessionId,
-    })
-  );
-
-  ws.on("message", async (message: string) => {
-    try {
-      await handleMessage(ws, message, sessionId);
-    } catch (error) {
-      console.error("Error handling message:", error);
-      ws.send(
-        JSON.stringify({
-          event: "error",
-          message: "Error handling message",
-          details: error instanceof Error ? error.message : "Unknown error",
-          sessionId: sessionId,
-        })
-      );
+  ws.on("message", async (message: WebSocket.Data, isBinary: boolean) => {
+    if (isBinary) {
+      pcmBuffer = Buffer.concat([pcmBuffer, message as Buffer]);
+      if (pcmBuffer.length >= 32000) {
+        const transcription = await processAudioData(pcmBuffer, sampleRate);
+        sendTranscriptionResponse(ws, transcription);
+        pcmBuffer = Buffer.alloc(0);
+      }
+    } else {
+      try {
+        const jsonMessage = JSON.parse(message.toString());
+        if (jsonMessage.type === "start") {
+          sampleRate = jsonMessage.sampleRate;
+        }
+      } catch (error) {
+        console.error("Error parsing JSON message:", error);
+      }
     }
   });
 
   ws.on("close", () => {
-    console.log(`WebSocket connection closed for session ${sessionId}`);
-    // Any cleanup operations can be performed here if needed
+    console.log("WebSocket client disconnected");
   });
+};
+
+const sendTranscriptionResponse = (ws: WebSocket, transcription: string) => {
+  if (ws.readyState === WebSocket.OPEN) {
+    const message = {
+      type: "transcriber-response",
+      transcription: transcription,
+      channel: "customer", // Assuming all incoming audio is from customer
+    };
+    ws.send(JSON.stringify(message));
+    console.log("Sent transcription response:", message);
+  }
 };

@@ -6,6 +6,7 @@ export const config = {
   domain: process.env.DOMAIN || "localhost",
   port: process.env.PORT || 3001,
   recognizerName: process.env.RECOGNIZER_NAME,
+  vapiSecret: process.env.VAPI_SECRET,
 };
 
 export const credentials = {
