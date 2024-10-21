@@ -1,26 +1,46 @@
 import WebSocket from "ws";
+import { google } from "@google-cloud/speech/build/protos/protos";
 import { processAudioData } from "./audioProcessor";
 
+interface StartMessage {
+  type: "start";
+  encoding: string;
+  container: string;
+  sampleRate: number;
+  channels: number;
+}
+
 export const handleConnection = (ws: WebSocket) => {
-  let pcmBuffer = Buffer.alloc(0);
+  let audioBuffer = Buffer.alloc(0);
   let sampleRate: number;
+  let channels: number;
+  let isProcessing = false;
 
   ws.on("message", async (message: WebSocket.Data, isBinary: boolean) => {
     if (isBinary) {
-      pcmBuffer = Buffer.concat([pcmBuffer, message as Buffer]);
-      if (pcmBuffer.length >= 32000) {
-        const transcription = await processAudioData(pcmBuffer, sampleRate);
-        sendTranscriptionResponse(ws, transcription);
-        pcmBuffer = Buffer.alloc(0);
+      audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
+
+      if (!isProcessing && audioBuffer.length > 0) {
+        isProcessing = true;
+        await processAndSendTranscription(
+          ws,
+          audioBuffer,
+          sampleRate,
+          channels
+        );
+        audioBuffer = Buffer.alloc(0);
+        isProcessing = false;
       }
     } else {
       try {
-        const jsonMessage = JSON.parse(message.toString());
+        const jsonMessage = JSON.parse(message.toString()) as StartMessage;
         if (jsonMessage.type === "start") {
           sampleRate = jsonMessage.sampleRate;
+          channels = jsonMessage.channels;
         }
       } catch (error) {
         console.error("Error parsing JSON message:", error);
+        sendErrorResponse(ws, "Invalid JSON message");
       }
     }
   });
@@ -30,14 +50,47 @@ export const handleConnection = (ws: WebSocket) => {
   });
 };
 
-const sendTranscriptionResponse = (ws: WebSocket, transcription: string) => {
+const processAndSendTranscription = async (
+  ws: WebSocket,
+  buffer: Buffer,
+  sampleRate: number,
+  channels: number
+) => {
+  try {
+    const transcription = await processAudioData(buffer, sampleRate, channels);
+    sendTranscriptionResponse(ws, transcription);
+  } catch (error) {
+    console.error("Error processing audio:", error);
+    sendErrorResponse(ws, "Error processing audio");
+  }
+};
+
+const sendTranscriptionResponse = (
+  ws: WebSocket,
+  response: google.cloud.speech.v2.IRecognizeResponse
+) => {
+  if (ws.readyState === WebSocket.OPEN) {
+    response.results?.forEach((result) => {
+      if (result.alternatives && result.alternatives[0]) {
+        const transcript = result.alternatives[0].transcript;
+        const message = {
+          type: "transcriber-response",
+          transcription: transcript,
+          channel: "customer",
+        };
+        ws.send(JSON.stringify(message));
+      }
+    });
+  }
+};
+
+const sendErrorResponse = (ws: WebSocket, errorMessage: string) => {
   if (ws.readyState === WebSocket.OPEN) {
     const message = {
-      type: "transcriber-response",
-      transcription: transcription,
-      channel: "customer", // Assuming all incoming audio is from customer
+      type: "error",
+      error: errorMessage,
     };
     ws.send(JSON.stringify(message));
-    console.log("Sent transcription response:", message);
+    console.error("Sent error response:", message);
   }
 };
