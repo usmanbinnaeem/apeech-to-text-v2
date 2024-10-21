@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { google } from "@google-cloud/speech/build/protos/protos";
 import { processAudioData } from "./audioProcessor";
+import logger from "../utils/logs";
 
 interface StartMessage {
   type: "start";
@@ -18,33 +19,38 @@ export const handleConnection = (ws: WebSocket) => {
 
   ws.on("message", async (message: WebSocket.Data, isBinary: boolean) => {
     if (isBinary) {
-      const message = {
-        "type": "transcriber-response",
-        "transcription": "Hæ Róbert, gaman að heyra frá þér",
-        "channel": "customer",
-      };
-      ws.send(JSON.stringify(message));
-      // audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
-
-      // if (!isProcessing && audioBuffer.length > 0) {
-      //   isProcessing = true;
-      //   await processAndSendTranscription(
-      //     ws,
-      //     audioBuffer,
-      //     sampleRate,
-      //     channels
-      //   );
-      //   audioBuffer = Buffer.alloc(0);
-      //   isProcessing = false;
-      // }
+      logger.log("Received audio data");
+      try {
+        audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
+        logger.log(`Audio buffer length: ${audioBuffer.length}`);
+        if (!isProcessing && audioBuffer.length > 0) {
+          isProcessing = true;
+          logger.log("Processing audio buffer");
+          await processAndSendTranscription(
+            ws,
+            audioBuffer,
+            sampleRate,
+            channels
+          );
+          logger.log("Audio buffer processed");
+          audioBuffer = Buffer.alloc(0);
+          isProcessing = false;
+        }
+      } catch (error) {
+        logger.error(`Error processing audio buffer:, ${error}`);
+        console.error("Error processing audio buffer:", error);
+        sendErrorResponse(ws, "Error processing audio buffer");
+      }
     } else {
       try {
         const jsonMessage = JSON.parse(message.toString()) as StartMessage;
         if (jsonMessage.type === "start") {
           sampleRate = jsonMessage.sampleRate;
           channels = jsonMessage.channels;
+          logger.log("Received start message");
         }
       } catch (error) {
+        logger.error(`Error parsing JSON message:, ${error}`);
         console.error("Error parsing JSON message:", error);
         sendErrorResponse(ws, "Invalid JSON message");
       }
@@ -52,6 +58,7 @@ export const handleConnection = (ws: WebSocket) => {
   });
 
   ws.on("close", () => {
+    logger.log("WebSocket client disconnected");
     console.log("WebSocket client disconnected");
   });
 };
@@ -63,9 +70,12 @@ const processAndSendTranscription = async (
   channels: number
 ) => {
   try {
+    logger.log("Processing audio");
     const transcription = await processAudioData(buffer, sampleRate, channels);
+    logger.log("Sending transcription response");
     sendTranscriptionResponse(ws, transcription);
   } catch (error) {
+    logger.error(`Error processing audio:, ${error}`);
     console.error("Error processing audio:", error);
     sendErrorResponse(ws, "Error processing audio");
   }
@@ -80,9 +90,9 @@ const sendTranscriptionResponse = (
       if (result.alternatives && result.alternatives[0]) {
         const transcript = result.alternatives[0].transcript;
         const message = {
-          "type": "transcriber-response",
-          "transcription": transcript,
-          "channel": "customer",
+          type: "transcriber-response",
+          transcription: transcript,
+          channel: "customer",
         };
         ws.send(JSON.stringify(message));
       }
@@ -93,10 +103,11 @@ const sendTranscriptionResponse = (
 const sendErrorResponse = (ws: WebSocket, errorMessage: string) => {
   if (ws.readyState === WebSocket.OPEN) {
     const message = {
-      "type": "error",
-      "error": errorMessage,
+      type: "error",
+      error: errorMessage,
     };
     ws.send(JSON.stringify(message));
+    logger.error(`Sent error response:, ${message}`);
     console.error("Sent error response:", message);
   }
 };
