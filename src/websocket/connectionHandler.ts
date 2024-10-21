@@ -23,18 +23,18 @@ export const handleConnection = (ws: WebSocket) => {
       try {
         audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
         logger.log(`Audio buffer length: ${audioBuffer.length}`);
-        if (!isProcessing && audioBuffer.length > 0) {
+        if (audioBuffer.length > 0) {
           isProcessing = true;
           logger.log("Processing audio buffer");
-          await processAndSendTranscription(
-            ws,
-            audioBuffer,
-            sampleRate,
-            channels
-          );
-          logger.log("Audio buffer processed");
-          audioBuffer = Buffer.alloc(0);
-          isProcessing = false;
+          try {
+            await processAndSendTranscription(ws, audioBuffer, sampleRate, channels);
+            logger.log("Audio buffer processed");
+          } catch (error) {
+            logger.error(`Error in processAndSendTranscription: ${error}`);
+          } finally {
+            audioBuffer = Buffer.alloc(0);
+            isProcessing = false;
+          }
         }
       } catch (error) {
         logger.error(`Error processing audio buffer:, ${error}`);
