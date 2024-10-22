@@ -21,27 +21,21 @@ export const handleConnection = (ws: WebSocket) => {
     if (isBinary) {
       logger.log("Received audio data");
       try {
-        const message = {
-          type: "transcriber-response",
-          transcription: "Hæ Róbert, gaman að heyra frá þér",
-          channel: "customer",
-        };
-        ws.send(JSON.stringify(message));
-        // audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
-        // logger.log(`Audio buffer length: ${audioBuffer.length}`);
-        // if (audioBuffer.length > 0) {
-        //   isProcessing = true;
-        //   logger.log("Processing audio buffer");
-        //   try {
-        //     await processAndSendTranscription(ws, audioBuffer, sampleRate, channels);
-        //     logger.log("Audio buffer processed");
-        //   } catch (error) {
-        //     logger.error(`Error in processAndSendTranscription: ${error}`);
-        //   } finally {
-        //     audioBuffer = Buffer.alloc(0);
-        //     isProcessing = false;
-        //   }
-        // }
+        audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
+        logger.log(`Audio buffer length: ${audioBuffer.length}`);
+        if (audioBuffer.length > 0) {
+          isProcessing = true;
+          logger.log("Processing audio buffer");
+          try {
+            await processAndSendTranscription(ws, audioBuffer, sampleRate, channels);
+            logger.log("Audio buffer processed");
+          } catch (error) {
+            logger.error(`Error in processAndSendTranscription: ${error}`);
+          } finally {
+            audioBuffer = Buffer.alloc(0);
+            isProcessing = false;
+          }
+        }
       } catch (error) {
         logger.error(`Error processing audio buffer:, ${error}`);
         console.error("Error processing audio buffer:", error);
