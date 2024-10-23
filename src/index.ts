@@ -4,7 +4,7 @@ import WebSocket from "ws";
 import dotenv from "dotenv";
 import { handleConnection } from "./websocket/connectionHandler";
 import { config } from "./config";
-import logger from "./utils/logs";
+// import logger from "./utils/logs";
 
 dotenv.config();
 const app = express();
@@ -22,12 +22,12 @@ wss.on("connection", (ws, req) => {
   //   ws.close(1008, "Invalid VAPI secret");
   //   return;
   // }
-  logger.log("WebSocket client connected");
+  console.log("WebSocket client connected");
   handleConnection(ws);
 });
 
 const PORT = config.port || 3001;
 server.listen(PORT, () => {
   // console.log(`Server is running on port ${PORT}`);
-  logger.info(`Server is running on port ${PORT}`);
+  console.info(`Server is running on port ${PORT}`);
 });
