@@ -22,7 +22,7 @@ wss.on("connection", (ws, req) => {
   //   ws.close(1008, "Invalid VAPI secret");
   //   return;
   // }
-  logger.log("WebSocket client connected");
+  // logger.log("WebSocket client connected");
   handleConnection(ws);
 });
 

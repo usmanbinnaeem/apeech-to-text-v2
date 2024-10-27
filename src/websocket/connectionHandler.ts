@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import { google } from "@google-cloud/speech/build/protos/protos";
-import { processAudioData } from "./audioProcessor";
+import { processAudioStream } from "./audioProcessor";
 import logger from "../utils/logs";
 
 interface StartMessage {
@@ -11,47 +11,100 @@ interface StartMessage {
   channels: number;
 }
 
+// Calculate buffer sizes based on audio properties
+const BYTES_PER_SAMPLE = 2; // 16-bit audio = 2 bytes
+const DEFAULT_SAMPLE_RATE = 16000;
+const DEFAULT_CHANNELS = 2;
+
+// Buffer for 500ms of audio by default
+const calculateChunkSize = (sampleRate: number, channels: number) => 
+  Math.floor((sampleRate * BYTES_PER_SAMPLE * channels * 0.5));
+
 export const handleConnection = (ws: WebSocket) => {
   let audioBuffer = Buffer.alloc(0);
-  let sampleRate: number;
-  let channels: number;
+  let sampleRate = DEFAULT_SAMPLE_RATE;
+  let channels = DEFAULT_CHANNELS;
   let isProcessing = false;
+  let streamEnded = false;
+  let chunkSize: number;
+  let maxBufferSize: number;
+
+  const initializeBufferSizes = (sRate: number, ch: number) => {
+    chunkSize = calculateChunkSize(sRate, ch);
+    maxBufferSize = chunkSize * 4; // Store up to 2 seconds of audio
+    logger.log(`Initialized with chunk size: ${chunkSize}, max buffer: ${maxBufferSize}`);
+  };
+
+  const processChunk = async () => {
+    if (isProcessing || audioBuffer.length < chunkSize) {
+      return;
+    }
+
+    try {
+      isProcessing = true;
+      const chunkToProcess = audioBuffer.slice(0, chunkSize);
+      audioBuffer = audioBuffer.slice(chunkSize);
+
+      logger.log(`Processing chunk of size: ${chunkToProcess.length} bytes`);
+      await processAndSendTranscription(ws, chunkToProcess, sampleRate, channels);
+    } catch (error) {
+      logger.error(`Error processing chunk: ${error}`);
+      sendErrorResponse(ws, "Error processing audio chunk");
+    } finally {
+      isProcessing = false;
+      
+      // Process next chunk if available
+      if (audioBuffer.length >= chunkSize) {
+        setImmediate(processChunk);
+      } else if (streamEnded && audioBuffer.length > 0) {
+        // Process remaining buffer if stream ended
+        setImmediate(processChunk);
+      }
+    }
+  };
+
+  const handleAudioData = async (data: Buffer) => {
+    audioBuffer = Buffer.concat([audioBuffer, data]);
+    
+    if (audioBuffer.length > maxBufferSize) {
+      const exceeded = audioBuffer.length - maxBufferSize;
+      logger.log(`Buffer exceeded by ${exceeded} bytes. Processing chunks to catch up.`);
+      
+      // Process multiple chunks to catch up
+      while (audioBuffer.length >= chunkSize && !isProcessing) {
+        await processChunk();
+      }
+    } else if (audioBuffer.length >= chunkSize) {
+      await processChunk();
+    }
+  };
 
   ws.on("message", async (message: WebSocket.Data, isBinary: boolean) => {
     if (isBinary) {
-      logger.log("Received audio data");
       try {
-        audioBuffer = Buffer.concat([audioBuffer, message as Buffer]);
-        logger.log(`Audio buffer length: ${audioBuffer.length}`);
-        if (audioBuffer.length > 0) {
-          isProcessing = true;
-          logger.log("Processing audio buffer");
-          try {
-            await processAndSendTranscription(ws, audioBuffer, sampleRate, channels);
-            logger.log("Audio buffer processed");
-          } catch (error) {
-            logger.error(`Error in processAndSendTranscription: ${error}`);
-          } finally {
-            audioBuffer = Buffer.alloc(0);
-            isProcessing = false;
-          }
-        }
+        await handleAudioData(message as Buffer);
       } catch (error) {
-        logger.error(`Error processing audio buffer:, ${error}`);
-        console.error("Error processing audio buffer:", error);
+        logger.error(`Error handling audio data: ${error}`);
         sendErrorResponse(ws, "Error processing audio buffer");
       }
     } else {
       try {
-        const jsonMessage = JSON.parse(message.toString()) as StartMessage;
+        const jsonMessage = JSON.parse(message.toString());
         if (jsonMessage.type === "start") {
-          sampleRate = jsonMessage.sampleRate;
-          channels = jsonMessage.channels;
-          logger.log("Received start message");
+          const startMessage = jsonMessage as StartMessage;
+          sampleRate = startMessage.sampleRate;
+          channels = startMessage.channels;
+          initializeBufferSizes(sampleRate, channels);
+          logger.log(`Received start message: ${startMessage}`);
+        } else if (jsonMessage.type === "end") {
+          streamEnded = true;
+          // Process any remaining audio in buffer
+          if (audioBuffer.length > 0) {
+            await processChunk();
+          }
         }
       } catch (error) {
-        logger.error(`Error parsing JSON message:, ${error}`);
-        console.error("Error parsing JSON message:", error);
+        logger.error(`Error parsing JSON message: ${error}`);
         sendErrorResponse(ws, "Invalid JSON message");
       }
     }
@@ -59,7 +112,7 @@ export const handleConnection = (ws: WebSocket) => {
 
   ws.on("close", () => {
     logger.log("WebSocket client disconnected");
-    console.log("WebSocket client disconnected");
+    streamEnded = true;
   });
 };
 
@@ -70,13 +123,14 @@ const processAndSendTranscription = async (
   channels: number
 ) => {
   try {
-    logger.log("Processing audio");
-    const transcription = await processAudioData(buffer, sampleRate, channels);
-    logger.log("Sending transcription response");
+    const transcription = await processAudioStream(
+      buffer,
+      sampleRate,
+      channels
+    );
     sendTranscriptionResponse(ws, transcription);
   } catch (error) {
-    logger.error(`Error processing audio:, ${error}`);
-    console.error("Error processing audio:", error);
+    logger.error(`Error processing audio: ${error}`);
     sendErrorResponse(ws, "Error processing audio");
   }
 };
@@ -107,7 +161,6 @@ const sendErrorResponse = (ws: WebSocket, errorMessage: string) => {
       error: errorMessage,
     };
     ws.send(JSON.stringify(message));
-    logger.error(`Sent error response:, ${message}`);
-    console.error("Sent error response:", message);
+    logger.error(`Sent error response: ${message}`);
   }
 };
